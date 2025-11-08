@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlavorGraph - Interactive Ingredient Pairing</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            min-width: 300px;
+            backdrop-filter: blur(10px);
+        }
+
+        #search-box {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        #search-box::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        #search-results {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+
+        .search-result {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            transition: background 0.2s;
+        }
+
+        .search-result:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        #info-panel {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        #info-panel.active {
+            display: block;
+        }
+
+        #info-panel h3 {
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+
+        #info-panel p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        #zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.2s;
+            backdrop-filter: blur(10px);
+        }
+
+        .zoom-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: scale(1.1);
+        }
+
+        .node {
+            cursor: pointer;
+        }
+
+        .node-label {
+            font-size: 12px;
+            fill: #fff;
+            text-anchor: middle;
+            pointer-events: none;
+            font-weight: 500;
+        }
+
+        .link {
+            stroke: rgba(255, 255, 255, 0.3);
+            stroke-opacity: 0.6;
+            fill: none;
+            pointer-events: stroke;
+            cursor: pointer;
+        }
+
+        .link.health-benefit {
+            stroke: #2ecc71;
+            stroke-opacity: 0.8;
+            stroke-width: 3px;
+        }
+
+        .link:hover {
+            stroke-opacity: 1;
+            stroke-width: 4px;
+        }
+
+        .edge-label {
+            font-size: 10px;
+            fill: #2ecc71;
+            pointer-events: none;
+            text-anchor: middle;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+            font-size: 12px;
+            max-width: 250px;
+            z-index: 1000;
+            display: none;
+        }
+
+        .tooltip.active {
+            display: block;
+        }
+
+        .node-circle {
+            stroke: #fff;
+            stroke-width: 2px;
+        }
+
+        .node-center {
+            stroke: #fff;
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+        }
+
+        .node-center-ring {
+            stroke: #9b59b6;
+            stroke-width: 2px;
+            fill: none;
+            opacity: 0.6;
+        }
+
+        #title {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px 50px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+
+        #loading.active {
+            display: block;
+        }
+
+        #loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .category-protein { fill: #e74c3c; }
+        .category-dairy { fill: #3498db; }
+        .category-vegetable { fill: #e67e22; }
+        .category-grain { fill: #2ecc71; }
+        .category-fruit { fill: #9b59b6; }
+        .category-spice { fill: #f39c12; }
+        .category-sweet { fill: #e91e63; }
+        .category-beverage { fill: #16a085; }
+        .category-other { fill: #95a5a6; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="loading" class="active">
+            <div id="loading-spinner"></div>
+            <div>Loading FlavorGraph data...</div>
+            <div style="font-size: 12px; margin-top: 10px; color: rgba(255,255,255,0.7);">
+                This may take a moment (loading ~8K nodes and ~147K edges)
+            </div>
+        </div>
+        
+        <div id="title">FlavorGraph - Ingredient Pairing Network</div>
+        
+        <div id="controls">
+            <input type="text" id="search-box" placeholder="Search ingredients...">
+            <div id="search-results"></div>
+            <div id="info-panel">
+                <h3 id="info-title"></h3>
+                <p id="info-details"></p>
+            </div>
+        </div>
+
+        <div id="zoom-controls">
+            <button class="zoom-btn" id="zoom-in">+</button>
+            <button class="zoom-btn" id="zoom-out">−</button>
+            <button class="zoom-btn" id="reset-view">↻</button>
+        </div>
+
+        <svg id="graph-container"></svg>
+        <div id="edge-tooltip" class="tooltip"></div>
+    </div>
+
+    <script>
+        // D3.js graph visualization
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        let svg, g, simulation;
+        let nodes = [], links = [];
+        let selectedNode = null;
+        let currentTransform = d3.zoomIdentity;
+
+        // Initialize SVG
+        svg = d3.select("#graph-container")
+            .attr("width", width)
+            .attr("height", height);
+
+        g = svg.append("g");
+
+        // Zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on("zoom", (event) => {
+                currentTransform = event.transform;
+                g.attr("transform", event.transform);
+            });
+
+        svg.call(zoom);
+
+        // Zoom controls
+        d3.select("#zoom-in").on("click", () => {
+            svg.transition().call(zoom.scaleBy, 1.5);
+        });
+
+        d3.select("#zoom-out").on("click", () => {
+            svg.transition().call(zoom.scaleBy, 1 / 1.5);
+        });
+
+        d3.select("#reset-view").on("click", () => {
+            svg.transition().call(zoom.transform, d3.zoomIdentity);
+            selectedNode = null;
+            loadGraph();
+        });
+
+        // Category colors
+        const categoryColors = {
+            protein: "#e74c3c",
+            dairy: "#3498db",
+            vegetable: "#e67e22",
+            grain: "#2ecc71",
+            fruit: "#9b59b6",
+            spice: "#f39c12",
+            sweet: "#e91e63",
+            beverage: "#16a085",
+            other: "#95a5a6"
+        };
+
+        // Load graph data
+        async function loadGraph(centerIngredient = null) {
+            const loadingEl = document.getElementById('loading');
+            loadingEl.classList.add('active');
+            
+            try {
+                const url = centerIngredient 
+                    ? `/api/graph?center=${encodeURIComponent(centerIngredient)}&depth=1&max_nodes=50`
+                    : '/api/graph?max_nodes=50';
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                nodes = data.nodes;
+                links = data.edges;
+                
+                if (nodes.length === 0) {
+                    console.warn('No nodes returned from API');
+                }
+                
+                updateGraph();
+            } catch (error) {
+                console.error('Error loading graph:', error);
+                alert('Error loading graph data. Please check the console for details.');
+            } finally {
+                loadingEl.classList.remove('active');
+            }
+        }
+
+        // Update graph visualization
+        function updateGraph() {
+            // Stop existing simulation
+            if (simulation) {
+                simulation.stop();
+            }
+
+            // Remove existing elements
+            g.selectAll(".link").remove();
+            g.selectAll(".node").remove();
+
+            // Find center node if exists
+            const centerNode = nodes.find(n => n.isCenter);
+            
+            // Initialize all nodes with positions
+            nodes.forEach((node, i) => {
+                if (!node.x || !node.y) {
+                    // Initialize with random positions around center
+                    const angle = (i / nodes.length) * 2 * Math.PI;
+                    const radius = 100;
+                    node.x = (width / 2) + radius * Math.cos(angle);
+                    node.y = (height / 2) + radius * Math.sin(angle);
+                }
+            });
+            
+            // If there's a center node, position it immediately
+            if (centerNode) {
+                centerNode.x = width / 2;
+                centerNode.y = height / 2;
+                centerNode.fx = width / 2;
+                centerNode.fy = height / 2;
+            }
+
+            // Create links with health benefit styling
+            const link = g.selectAll(".link")
+                .data(links)
+                .enter().append("line")
+                .attr("class", d => {
+                    let classes = "link";
+                    if (d.has_health_benefits) {
+                        classes += " health-benefit";
+                    }
+                    return classes;
+                })
+                .attr("stroke-width", d => Math.sqrt(d.weight) * 3)
+                .on("mouseover", function(event, d) {
+                    showEdgeTooltip(event, d);
+                })
+                .on("mousemove", function(event, d) {
+                    moveEdgeTooltip(event);
+                })
+                .on("mouseout", function() {
+                    hideEdgeTooltip();
+                });
+
+            // Create nodes
+            const node = g.selectAll(".node")
+                .data(nodes)
+                .enter().append("g")
+                .attr("class", "node")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            // Add circles for nodes
+            node.append("circle")
+                .attr("class", d => {
+                    let classes = "node-circle category-" + d.category;
+                    if (d.isCenter) classes += " node-center";
+                    return classes;
+                })
+                .attr("r", d => {
+                    const baseRadius = 15;
+                    const degreeRadius = Math.sqrt(d.degree) * 2;
+                    return Math.max(baseRadius, Math.min(baseRadius + degreeRadius, 30));
+                })
+                .attr("fill", d => categoryColors[d.category] || categoryColors.other)
+                .on("click", function(event, d) {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    selectNode(d);
+                });
+
+            // Add center ring for selected node
+            node.filter(d => d.isCenter)
+                .append("circle")
+                .attr("class", "node-center-ring")
+                .attr("r", d => {
+                    const baseRadius = 15;
+                    const degreeRadius = Math.sqrt(d.degree) * 2;
+                    return Math.max(baseRadius, Math.min(baseRadius + degreeRadius, 30)) + 5;
+                });
+
+            // Add labels
+            node.append("text")
+                .attr("class", "node-label")
+                .attr("dy", d => {
+                    const baseRadius = 15;
+                    const degreeRadius = Math.sqrt(d.degree) * 2;
+                    const radius = Math.max(baseRadius, Math.min(baseRadius + degreeRadius, 30));
+                    return radius + 15;
+                })
+                .text(d => d.name);
+
+            // Create force simulation
+            const linkForce = d3.forceLink(links)
+                .id(d => d.id)
+                .distance(d => {
+                    // Longer distance for health benefit edges
+                    const baseDist = 150 / (d.weight || 0.5);
+                    return d.has_health_benefits ? baseDist * 1.2 : baseDist;
+                });
+
+            simulation = d3.forceSimulation(nodes)
+                .force("link", linkForce)
+                .force("charge", d3.forceManyBody().strength(-400))
+                .force("center", d3.forceCenter(width / 2, height / 2).strength(centerNode ? 0.05 : 0.3))
+                .force("collision", d3.forceCollide().radius(d => {
+                    const baseRadius = 15;
+                    const degreeRadius = Math.sqrt(d.degree) * 2;
+                    return Math.max(baseRadius, Math.min(baseRadius + degreeRadius, 30)) + 5;
+                }))
+                .alpha(1)
+                .restart();
+
+            // Update positions on tick
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node.attr("transform", d => {
+                    // Keep center node fixed
+                    if (d.isCenter && d.fx !== null && d.fy !== null) {
+                        d.x = d.fx;
+                        d.y = d.fy;
+                    }
+                    return `translate(${d.x},${d.y})`;
+                });
+            });
+
+            // Click on background to deselect
+            svg.on("click", (event) => {
+                if (event.defaultPrevented) return;
+                deselectNode();
+            });
+        }
+
+        // Drag functions
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            // Don't allow dragging center node
+            if (!d.isCenter) {
+                d.fx = d.x;
+                d.fy = d.y;
+            } else {
+                // Prevent dragging center node
+                event.sourceEvent.stopPropagation();
+            }
+        }
+
+        function dragged(event, d) {
+            // Don't allow dragging center node
+            if (!d.isCenter) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            // Don't allow dragging center node
+            if (!d.isCenter) {
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        // Select node
+        function selectNode(node) {
+            selectedNode = node;
+            showNodeInfo(node);
+            // Stop current simulation before loading new graph
+            if (simulation) {
+                simulation.stop();
+            }
+            loadGraph(node.name);
+        }
+        
+        // Edge tooltip functions
+        function showEdgeTooltip(event, d) {
+            const tooltip = document.getElementById('edge-tooltip');
+            // Handle both object and ID references
+            const sourceNode = typeof d.source === 'object' ? d.source : nodes.find(n => n.id === d.source);
+            const targetNode = typeof d.target === 'object' ? d.target : nodes.find(n => n.id === d.target);
+            const sourceName = sourceNode?.name || 'Unknown';
+            const targetName = targetNode?.name || 'Unknown';
+            
+            let html = `<strong>${sourceName} ↔ ${targetName}</strong><br>`;
+            html += `Recipe Score: ${(d.recipe_score || d.weight || 0).toFixed(3)}<br>`;
+            
+            if (d.has_health_benefits && d.health_compounds && d.health_compounds.length > 0) {
+                html += `<br><strong style="color: #2ecc71;">💊 Health Benefits:</strong><br>`;
+                html += `Shared Compounds: ${d.num_health_compounds}<br>`;
+                html += d.health_compounds.slice(0, 3).join(', ');
+                if (d.num_health_compounds > 3) {
+                    html += ` (+${d.num_health_compounds - 3} more)`;
+                }
+            } else {
+                html += `<br><span style="color: #95a5a6;">No shared health compounds</span>`;
+            }
+            
+            tooltip.innerHTML = html;
+            tooltip.classList.add('active');
+            moveEdgeTooltip(event);
+        }
+        
+        function moveEdgeTooltip(event) {
+            const tooltip = document.getElementById('edge-tooltip');
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+        }
+        
+        function hideEdgeTooltip() {
+            const tooltip = document.getElementById('edge-tooltip');
+            tooltip.classList.remove('active');
+        }
+
+        // Deselect node
+        function deselectNode() {
+            selectedNode = null;
+            document.getElementById("info-panel").classList.remove("active");
+            // Stop current simulation before loading new graph
+            if (simulation) {
+                simulation.stop();
+            }
+            loadGraph();
+        }
+
+        // Show node info
+        async function showNodeInfo(node) {
+            document.getElementById("info-title").textContent = node.name;
+            document.getElementById("info-details").innerHTML = `
+                Category: ${node.category}<br>
+                Connections: ${node.degree}<br>
+                <button onclick="getRecommendations('${node.name}')" style="margin-top: 10px; padding: 8px 16px; background: #3498db; border: none; border-radius: 4px; color: white; cursor: pointer;">
+                    Show Pairings
+                </button>
+            `;
+            document.getElementById("info-panel").classList.add("active");
+        }
+
+        // Get recommendations
+        async function getRecommendations(ingredient) {
+            const response = await fetch(`/api/recommendations?ingredient=${encodeURIComponent(ingredient)}&top_n=10`);
+            const recommendations = await response.json();
+            
+            let details = `Category: ${selectedNode.category}<br>Connections: ${selectedNode.degree}<br><br><strong>Top Pairings:</strong><br>`;
+            recommendations.forEach((rec, i) => {
+                details += `${i + 1}. ${rec.ingredient} (score: ${rec.score.toFixed(3)})<br>`;
+            });
+            
+            document.getElementById("info-details").innerHTML = details;
+        }
+
+        // Search functionality
+        let searchTimeout;
+        document.getElementById("search-box").addEventListener("input", (e) => {
+            clearTimeout(searchTimeout);
+            const query = e.target.value.trim();
+            
+            if (query.length < 2) {
+                document.getElementById("search-results").innerHTML = "";
+                return;
+            }
+            
+            searchTimeout = setTimeout(async () => {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                const results = await response.json();
+                
+                const resultsHtml = results.slice(0, 10).map(result => 
+                    `<div class="search-result" onclick="selectIngredient('${result.name}')">
+                        ${result.name} (${result.degree} connections)
+                    </div>`
+                ).join("");
+                
+                document.getElementById("search-results").innerHTML = resultsHtml;
+            }, 300);
+        });
+
+        // Select ingredient from search
+        function selectIngredient(name) {
+            document.getElementById("search-box").value = "";
+            document.getElementById("search-results").innerHTML = "";
+            selectNode({ name, category: "other", degree: 0, id: 0, isCenter: true });
+        }
+
+        // Handle window resize
+        window.addEventListener("resize", () => {
+            const newWidth = window.innerWidth;
+            const newHeight = window.innerHeight;
+            svg.attr("width", newWidth).attr("height", newHeight);
+            if (simulation) {
+                simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+                simulation.alpha(1).restart();
+            }
+        });
+
+        // Initial load
+        loadGraph();
+    </script>
+</body>
+</html>
+
